@@ -3,7 +3,7 @@ from openai import OpenAI
 import json
 
 # -------------------------------
-# 🔐 Load Grok API from Secrets
+# 🔐 Grok Client (xAI)
 # -------------------------------
 client = OpenAI(
     api_key=st.secrets["GROK_API_KEY"],
@@ -11,47 +11,43 @@ client = OpenAI(
 )
 
 # -------------------------------
-# 📚 Rubrics
+# 📚 Multi-Rubric System
 # -------------------------------
 RUBRICS = {
     "physics": {
         "keywords": ["force", "motion", "newton", "acceleration"],
-        "rubric": """
-        - Definition correctness
-        - Formula usage (F = ma)
-        - Concept clarity
-        - Units and accuracy
-        Max Marks: 5
-        """
+        "criteria": [
+            "Definition correctness",
+            "Formula usage (F = ma)",
+            "Concept clarity",
+            "Units and accuracy"
+        ]
     },
     "math": {
         "keywords": ["solve", "equation", "integral", "derivative"],
-        "rubric": """
-        - Correct steps
-        - Method used
-        - Final answer accuracy
-        Max Marks: 5
-        """
+        "criteria": [
+            "Correct steps",
+            "Method used",
+            "Final answer accuracy"
+        ]
     },
     "english": {
         "keywords": ["explain", "theme", "story", "paragraph"],
-        "rubric": """
-        - Clarity of explanation
-        - Key points covered
-        - Language quality
-        Max Marks: 5
-        """
+        "criteria": [
+            "Clarity",
+            "Key points",
+            "Language quality"
+        ]
     }
 }
 
-FALLBACK_RUBRIC = """
-- Relevance to question
-- Coverage of key points
-- Clarity
-- Logical structure
-- Language quality
-Max Marks: 5
-"""
+FALLBACK = [
+    "Relevance",
+    "Coverage",
+    "Clarity",
+    "Structure",
+    "Language"
+]
 
 # -------------------------------
 # 🔍 Rubric Retrieval
@@ -59,19 +55,20 @@ Max Marks: 5
 def get_rubric(question):
     q = question.lower()
     for subject, data in RUBRICS.items():
-        for keyword in data["keywords"]:
-            if keyword in q:
-                return subject, data["rubric"]
-    return "fallback", FALLBACK_RUBRIC
+        if any(k in q for k in data["keywords"]):
+            return subject, data["criteria"]
+    return "fallback", FALLBACK
 
 # -------------------------------
 # 🤖 Prompt Builder
 # -------------------------------
-def build_prompt(question, answer, rubric):
-    return f"""
-You are a strict examiner.
+def build_prompt(question, answer, criteria):
+    criteria_text = "\n".join([f"- {c}" for c in criteria])
 
-Evaluate the student's answer using the rubric.
+    return f"""
+You are a strict evaluator.
+
+Evaluate the student's answer using EACH criterion separately.
 
 Question:
 {question}
@@ -79,70 +76,103 @@ Question:
 Student Answer:
 {answer}
 
-Rubric:
-{rubric}
+Criteria:
+{criteria_text}
 
-Return STRICT JSON ONLY:
+Instructions:
+- Give marks per criterion (0–1 each)
+- Sum total marks
+- Max marks = number of criteria
+
+Return STRICT JSON:
 {{
+    "criteria_scores": {{
+        "criterion1": 1,
+        "criterion2": 0
+    }},
     "marks_awarded": int,
-    "max_marks": 5,
+    "max_marks": int,
     "feedback": "...",
-    "justification": "..."
+    "justification": "...",
+    "confidence": 0-1
 }}
 """
 
 # -------------------------------
-# 🧠 LLM Evaluation (Grok)
+# 🧠 LLM Call
 # -------------------------------
-def evaluate_answer(question, answer, rubric):
-    prompt = build_prompt(question, answer, rubric)
-
+def call_llm(prompt, model):
     response = client.chat.completions.create(
-        model="grok-2-latest",
+        model=model,
         messages=[
-            {"role": "system", "content": "You are a strict evaluator."},
+            {"role": "system", "content": "You are a fair and strict examiner."},
             {"role": "user", "content": prompt}
         ],
         temperature=0
     )
-
     return response.choices[0].message.content
 
 # -------------------------------
-# 🧪 Safe JSON Parsing
+# 🧪 Safe JSON
 # -------------------------------
-def safe_parse(output):
+def safe_parse(text):
     try:
-        return json.loads(output)
+        return json.loads(text)
     except:
-        return {
-            "error": "Invalid JSON from model",
-            "raw_output": output
-        }
+        return {"error": "Invalid JSON", "raw": text}
 
 # -------------------------------
-# 🌐 Streamlit UI
+# 🔁 Consistency Check
 # -------------------------------
-st.set_page_config(page_title="Mini Answer Evaluator")
+def evaluate_with_consistency(prompt, model):
+    out1 = safe_parse(call_llm(prompt, model))
+    out2 = safe_parse(call_llm(prompt, model))
 
-st.title("📊 Mini Answer Evaluator")
+    if "marks_awarded" in out1 and "marks_awarded" in out2:
+        consistency = abs(out1["marks_awarded"] - out2["marks_awarded"])
+    else:
+        consistency = "N/A"
+
+    return out1, out2, consistency
+
+# -------------------------------
+# 🌐 UI
+# -------------------------------
+st.set_page_config(page_title="Advanced Answer Evaluator")
+
+st.title("🚀 Advanced Mini Answer Evaluator")
+
+model = st.selectbox("Choose Model", ["grok-2-latest", "grok-1"])
 
 question = st.text_area("Enter Question")
 answer = st.text_area("Enter Student Answer")
 
+show_debug = st.checkbox("Show Debug Info")
+
 if st.button("Evaluate"):
     if not question or not answer:
-        st.warning("Please enter both question and answer.")
+        st.warning("Please fill all fields.")
     else:
-        subject, rubric = get_rubric(question)
+        subject, criteria = get_rubric(question)
 
-        st.subheader("📚 Retrieved Rubric")
-        st.write(f"**Subject:** {subject}")
-        st.write(rubric)
+        st.subheader("📚 Detected Subject")
+        st.write(subject)
 
-        with st.spinner("Evaluating..."):
-            raw_output = evaluate_answer(question, answer, rubric)
-            result = safe_parse(raw_output)
+        st.subheader("📏 Evaluation Criteria")
+        st.write(criteria)
 
-        st.subheader("🧠 Evaluation Result")
-        st.json(result)
+        prompt = build_prompt(question, answer, criteria)
+
+        with st.spinner("Evaluating with consistency check..."):
+            res1, res2, consistency = evaluate_with_consistency(prompt, model)
+
+        st.subheader("🧠 Final Evaluation")
+        st.json(res1)
+
+        st.subheader("📊 Consistency Check")
+        st.write(f"Difference in marks: {consistency}")
+
+        if show_debug:
+            st.subheader("🔍 Debug Output")
+            st.write("Run 1:", res1)
+            st.write("Run 2:", res2)
