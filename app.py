@@ -311,7 +311,7 @@ def evaluate_with_grok(question: str, student_answer: str, rubric: str,
     prompt = build_prompt(question, student_answer, rubric, use_rubric)
 
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )
