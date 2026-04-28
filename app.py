@@ -306,12 +306,12 @@ def evaluate_with_grok(question: str, student_answer: str, rubric: str,
                         use_rubric: bool, api_key: str) -> dict:
     client = OpenAI(
         api_key=api_key,
-        base_url="https://api.x.ai/v1",
+        base_url="https://api.groq.com/openai/v1",
     )
     prompt = build_prompt(question, student_answer, rubric, use_rubric)
 
     response = client.chat.completions.create(
-        model="grok-3-mini",
+        model="llama3-70b-8192",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )
@@ -367,7 +367,7 @@ def render_result(result: dict, title: str = "Evaluation Result"):
 # ─────────────────────────────────────────────
 api_key_input = ""
 try:
-    api_key_input = st.secrets["GROK_API_KEY"]
+    api_key_input = st.secrets["GROQ_API_KEY"]
 except Exception:
     pass
 
@@ -402,7 +402,7 @@ evaluate_btn = st.button("🔍 Evaluate", use_container_width=True, type="primar
 # ─────────────────────────────────────────────
 if evaluate_btn:
     if not api_key_input:
-        st.error("GROK_API_KEY not found. Please set it in Streamlit Secrets.")
+        st.error("GROQ_API_KEY not found. Please set it in Streamlit Secrets.")
     elif not question.strip():
         st.warning("Please enter a question.")
     elif not student_answer.strip():
