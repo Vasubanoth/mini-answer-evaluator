@@ -3,15 +3,17 @@ from openai import OpenAI
 import json
 
 # -------------------------------
-# 🔐 Grok Client (xAI)
+# 🔐 CONFIG
 # -------------------------------
+MODEL_NAME = "grok-1"
+
 client = OpenAI(
     api_key=st.secrets["GROK_API_KEY"],
     base_url="https://api.x.ai/v1"
 )
 
 # -------------------------------
-# 📚 Multi-Rubric System
+# 📚 RUBRICS
 # -------------------------------
 RUBRICS = {
     "physics": {
@@ -50,7 +52,7 @@ FALLBACK = [
 ]
 
 # -------------------------------
-# 🔍 Rubric Retrieval
+# 🔍 RUBRIC RETRIEVAL
 # -------------------------------
 def get_rubric(question):
     q = question.lower()
@@ -60,13 +62,13 @@ def get_rubric(question):
     return "fallback", FALLBACK
 
 # -------------------------------
-# 🤖 Prompt Builder
+# 🤖 PROMPT BUILDER
 # -------------------------------
 def build_prompt(question, answer, criteria):
     criteria_text = "\n".join([f"- {c}" for c in criteria])
 
     return f"""
-You are a strict evaluator.
+You are a strict examiner.
 
 Evaluate the student's answer using EACH criterion separately.
 
@@ -80,11 +82,11 @@ Criteria:
 {criteria_text}
 
 Instructions:
-- Give marks per criterion (0–1 each)
+- Give marks per criterion (0 or 1 each)
 - Sum total marks
 - Max marks = number of criteria
 
-Return STRICT JSON:
+Return ONLY JSON:
 {{
     "criteria_scores": {{
         "criterion1": 1,
@@ -99,34 +101,44 @@ Return STRICT JSON:
 """
 
 # -------------------------------
-# 🧠 LLM Call
+# 🧠 LLM CALL (SAFE)
 # -------------------------------
-def call_llm(prompt, model):
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a fair and strict examiner."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0
-    )
-    return response.choices[0].message.content
+def call_llm(prompt):
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are a fair and strict examiner."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return json.dumps({
+            "error": "LLM call failed",
+            "details": str(e)
+        })
 
 # -------------------------------
-# 🧪 Safe JSON
+# 🧪 SAFE JSON PARSE
 # -------------------------------
 def safe_parse(text):
     try:
         return json.loads(text)
     except:
-        return {"error": "Invalid JSON", "raw": text}
+        return {
+            "error": "Invalid JSON from model",
+            "raw_output": text
+        }
 
 # -------------------------------
-# 🔁 Consistency Check
+# 🔁 CONSISTENCY CHECK
 # -------------------------------
-def evaluate_with_consistency(prompt, model):
-    out1 = safe_parse(call_llm(prompt, model))
-    out2 = safe_parse(call_llm(prompt, model))
+def evaluate_with_consistency(prompt):
+    out1 = safe_parse(call_llm(prompt))
+    out2 = safe_parse(call_llm(prompt))
 
     if "marks_awarded" in out1 and "marks_awarded" in out2:
         consistency = abs(out1["marks_awarded"] - out2["marks_awarded"])
@@ -136,13 +148,11 @@ def evaluate_with_consistency(prompt, model):
     return out1, out2, consistency
 
 # -------------------------------
-# 🌐 UI
+# 🌐 STREAMLIT UI
 # -------------------------------
-st.set_page_config(page_title="Advanced Answer Evaluator")
+st.set_page_config(page_title="Mini Answer Evaluator", layout="centered")
 
-st.title("🚀 Advanced Mini Answer Evaluator")
-
-model = st.selectbox("Choose Model", ["grok-2-latest", "grok-1"])
+st.title("📊 Mini Answer Evaluator")
 
 question = st.text_area("Enter Question")
 answer = st.text_area("Enter Student Answer")
@@ -151,7 +161,7 @@ show_debug = st.checkbox("Show Debug Info")
 
 if st.button("Evaluate"):
     if not question or not answer:
-        st.warning("Please fill all fields.")
+        st.warning("Please enter both question and answer.")
     else:
         subject, criteria = get_rubric(question)
 
@@ -163,8 +173,8 @@ if st.button("Evaluate"):
 
         prompt = build_prompt(question, answer, criteria)
 
-        with st.spinner("Evaluating with consistency check..."):
-            res1, res2, consistency = evaluate_with_consistency(prompt, model)
+        with st.spinner("Evaluating..."):
+            res1, res2, consistency = evaluate_with_consistency(prompt)
 
         st.subheader("🧠 Final Evaluation")
         st.json(res1)
