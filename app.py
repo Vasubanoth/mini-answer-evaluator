@@ -363,32 +363,15 @@ def render_result(result: dict, title: str = "Evaluation Result"):
 
 
 # ─────────────────────────────────────────────
-#  SIDEBAR
+#  API KEY (from Streamlit Secrets only)
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### ⚙️ Settings")
+api_key_input = ""
+try:
+    api_key_input = st.secrets["GROK_API_KEY"]
+except Exception:
+    pass
 
-    # Try secrets first, allow manual override
-    default_key = ""
-    try:
-        default_key = st.secrets["GROK_API_KEY"]
-    except Exception:
-        pass
-
-    api_key_input = st.text_input(
-        "Grok API Key",
-        value=default_key,
-        type="password",
-        help="Set GROK_API_KEY in Streamlit Secrets, or paste here.",
-    )
-
-    compare_mode = st.toggle("📊 Compare: With vs Without Rubric", value=False)
-    st.markdown("---")
-    st.markdown(
-        "<small style='color:#4b5563;'>Built for Evalvia Assignment · "
-        "Powered by Grok (xAI)</small>",
-        unsafe_allow_html=True,
-    )
+compare_mode = False
 
 
 # ─────────────────────────────────────────────
@@ -419,7 +402,7 @@ evaluate_btn = st.button("🔍 Evaluate", use_container_width=True, type="primar
 # ─────────────────────────────────────────────
 if evaluate_btn:
     if not api_key_input:
-        st.error("Please provide a Grok API key (in Streamlit Secrets or the sidebar).")
+        st.error("GROK_API_KEY not found. Please set it in Streamlit Secrets.")
     elif not question.strip():
         st.warning("Please enter a question.")
     elif not student_answer.strip():
